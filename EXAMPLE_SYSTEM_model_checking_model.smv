@@ -1,0 +1,735 @@
+--	include functionblocks.smv
+--	include LOW_WL_APU.smv
+--	include VU.smv
+--	include HIGH_WL_APU.smv
+--	include failuremodule_MKJall.smv
+--	include processmodule.smv
+--	include LINK_MEAS_APU_MKJall.smv
+--	include LINK_APU_APU_MKJall.smv
+--	include LINK_APU_VU_MKJall.smv
+--	include LINK_VU_VALVE_MKJall.smv
+--	include VALVE.smv
+
+MODULE main
+
+VAR 
+--##############
+--## Parameters: ###
+--##############
+
+--#scenario : {free};
+failures :  {0,1,2,3};  --# number of simultaneous failures allowed in the failure module
+CCFs : {0,1};  --# number of common cause failures allowed 
+
+--##############
+--## failure module & #
+--## process module  #
+--##############
+
+failuremodule : failure_module(failures, CCFs);
+processmodule : process_module(VALVE_OPEN); 
+
+--# LOW APU1
+LINK_WLM_LOW_APU1 : LINK_MEAS_APU(processmodule.Water_level_low, failuremodule.WLM_LOW, failuremodule.APU1, 0); 
+LINK_APU2_APU1_LOW : LINK_APU_APU(LOW_APU2.VOTE_OUT,  LOW_APU2.VOTE_OUT_FAULT, failuremodule.APU2, failuremodule.APU1, 0); 
+LOW_APU1 :  LOW_WL_APU(LINK_WLM_LOW_APU1.output1, LINK_WLM_LOW_APU1.output1_FAULT, LINK_APU2_APU1_LOW.output1, LINK_APU2_APU1_LOW.output1_FAULT);
+
+--# LOW APU2
+LINK_WLM_LOW_APU2 : LINK_MEAS_APU(processmodule.Water_level_low, failuremodule.WLM_LOW, failuremodule.APU2, 0); 
+LINK_APU1_APU2_LOW : LINK_APU_APU(LOW_APU1.VOTE_OUT,  LOW_APU1.VOTE_OUT_FAULT, failuremodule.APU1, failuremodule.APU2, 0); 
+LOW_APU2 : LOW_WL_APU(LINK_WLM_LOW_APU2.output1, LINK_WLM_LOW_APU2.output1_FAULT, LINK_APU1_APU2_LOW.output1, LINK_APU1_APU2_LOW.output1_FAULT);
+
+--# LOW VU1
+LINK_APU1_LOWVU : LINK_APU_VU(LOW_APU1.CLOSE,  LOW_APU1.CLOSE_FAULT, failuremodule.APU1, failuremodule.VU, 0); 
+LINK_APU2_LOWVU : LINK_APU_VU(LOW_APU2.CLOSE,  LOW_APU2.CLOSE_FAULT, failuremodule.APU2, failuremodule.VU, 0); 
+LOW_VU1 : VULOW(LINK_APU1_LOWVU.output1, LINK_APU1_LOWVU.output1_FAULT, LINK_APU2_LOWVU.output1, LINK_APU2_LOWVU.output1_FAULT);
+
+--# HIGH APU1
+LINK_WLM_HIGH_APU1 : LINK_MEAS_APU(processmodule.Water_level_high, failuremodule.WLM_HIGH, failuremodule.APU1, 0); 
+LINK_APU2_APU1_HIGH : LINK_APU_APU(HIGH_APU2.VOTE_OUT,  HIGH_APU2.VOTE_OUT_FAULT, failuremodule.APU2, failuremodule.APU1, 0); 
+HIGH_APU1 : HIGH_WL_APU(LINK_WLM_HIGH_APU1.output1, LINK_WLM_HIGH_APU1.output1_FAULT, LINK_APU2_APU1_HIGH.output1, LINK_APU2_APU1_HIGH.output1_FAULT, cycles);
+
+--# HIGH APU2
+LINK_WLM_HIGH_APU2 : LINK_MEAS_APU(processmodule.Water_level_high, failuremodule.WLM_HIGH, failuremodule.APU2, 0); 
+LINK_APU1_APU2_HIGH : LINK_APU_APU(HIGH_APU1.VOTE_OUT,  HIGH_APU1.VOTE_OUT_FAULT, failuremodule.APU1, failuremodule.APU2, 0); 
+HIGH_APU2 : HIGH_WL_APU(LINK_WLM_HIGH_APU2.output1, LINK_WLM_HIGH_APU2.output1_FAULT, LINK_APU1_APU2_HIGH.output1, LINK_APU1_APU2_HIGH.output1_FAULT, cycles);
+
+--# HIGH VU1
+LINK_APU1_HIGHVU : LINK_APU_VU(HIGH_APU1.OPEN,  HIGH_APU1.OPEN_FAULT, failuremodule.APU1, failuremodule.VU, 0); 
+LINK_APU2_HIGHVU : LINK_APU_VU(HIGH_APU2.OPEN,  HIGH_APU2.OPEN_FAULT, failuremodule.APU2, failuremodule.VU, 0); 
+HIGH_VU1 : VUHIGH(LINK_APU1_HIGHVU.output1, LINK_APU1_HIGHVU.output1_FAULT, LINK_APU2_HIGHVU.output1, LINK_APU2_HIGHVU.output1_FAULT);
+
+
+--# VALVE
+LINK_LOWVU_VALVE  : LINK_VU_VALVE(LOW_VU1.COMMAND, LOW_VU1.COMMAND_FAULT, failuremodule.VU, failuremodule.Valve1);
+LINK_HIGHVU_VALVE  : LINK_VU_VALVE(HIGH_VU1.COMMAND, HIGH_VU1.COMMAND_FAULT, failuremodule.VU, failuremodule.Valve1);
+VALVE1 : VALVE(LINK_HIGHVU_VALVE.output1, LINK_LOWVU_VALVE.output1);
+DEFINE
+
+lowlimit := 20;	--# low water limit 
+highlimit := 100; --# high water limit
+cycles := 1;
+
+VALVE_OPEN := VALVE1.OPEN;
+VALVE_CLOSE := ! VALVE1.OPEN;
+
+--# Short hands for the failures modes (names match PRA model)
+
+SYVE_VM_FO := failuremodule.Valve1.status = fails_open;
+
+VU_SR_FD := failuremodule.VU.backplane_or_powersupply_status = detected;
+VU_OM_FU := failuremodule.VU.digital_output_status = undetected;
+VU_OM_FD := failuremodule.VU.digital_output_status = detected;
+VU_PM_FU := failuremodule.VU.processor_status = undetected;
+VU_PM_FD  := failuremodule.VU.processor_status = detected;
+
+WLM_Low_FD  := failuremodule.WLM_LOW.status = detected ;
+WLM_Low_FU := failuremodule.WLM_LOW.status = undetected ;
+WLM_high_FD := failuremodule.WLM_HIGH.status = detected ;
+WLM_high_FU := failuremodule.WLM_HIGH.status = undetected ;
+
+APU1_DIM_FU := failuremodule.APU1.digital_input_status = undetected;
+APU2_DIM_FU := failuremodule.APU2.digital_input_status = undetected;
+APU1_DIM_FD := failuremodule.APU1.digital_input_status = detected;
+APU2_DIM_FD := failuremodule.APU2.digital_input_status = detected;
+APU1_SR_FD := failuremodule.APU1.backplane_or_powersupply_status = detected;
+APU2_SR_FD := failuremodule.APU2.backplane_or_powersupply_status = detected;
+
+APU1_PM_FU := failuremodule.APU1.processor_status = undetected;
+APU2_PM_FU := failuremodule.APU2.processor_status = undetected;
+APU1_PM_FD := failuremodule.APU1.processor_status = detected;
+APU2_PM_FD := failuremodule.APU2.processor_status = detected;
+
+
+
+
+
+--# Main requirements: 
+--#1. On low water level, the valve is always closed. 	(This alone is used as the success criterion)
+--#2. On high water level, the valve is eventually opened.
+--#3. on medium water level, the valve is not given either command.
+
+
+--# No failures postulated:
+LTLSPEC G(CCFs = 0 & failures = 0) -> G(processmodule.Water_level < 20  -> VALVE_CLOSE); --# TRUE
+--LTLSPEC G(CCFs = 0 & failures = 0) -> G(processmodule.Water_level > 100  -> F ( VALVE_OPEN )); --# TRUE
+--LTLSPEC G(CCFs = 0 & failures = 0) -> G(processmodule.Water_level > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --#TRUE
+
+--# MCS of length 1: These failures should cause problems:
+--# SYVE_VM_FO
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(SYVE_VM_FO  & processmodule.Water_level < 20  -> VALVE_CLOSE);  --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(SYVE_VM_FO  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN)); --# TRUE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(SYVE_VM_FO  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+
+--# WLM_Low_FU
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_Low_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_Low_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN)); --# TRUE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_Low_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+--# VU_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN)); --# FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_SR_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE
+
+--# VU_OM_FU
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_OM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_OM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_OM_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE 
+
+--# VU_OM_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_OM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_OM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_OM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE 
+
+--# VU_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_PM_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE 
+
+--# VU_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_PM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(VU_PM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE 
+
+--# WLM_high_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_high_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_high_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN)); --# TRUE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_high_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+
+--# WLM_Low_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_Low_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_Low_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN)); --# TRUE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(WLM_Low_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE
+
+
+--# MCS of length 2: These individually should NOT cause problems:
+--# APUx_DIM_FU
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_DIM_FU & processmodule.Water_level < 20  -> VALVE_CLOSE); --#TRUE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_DIM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_DIM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE
+
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_DIM_FU & processmodule.Water_level < 20  -> VALVE_CLOSE); --#TRUE
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_DIM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_DIM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE
+
+--# APUx_DIM_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_DIM_FD & processmodule.Water_level < 20  -> VALVE_CLOSE);  --# FALSE!
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_DIM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_DIM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_DIM_FD & processmodule.Water_level < 20  -> VALVE_CLOSE);  --# FALSE!
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_DIM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_DIM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+
+--# APUx_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE!
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_SR_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1);--#FALSE
+
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --#FALSE!
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_SR_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1);--#FALSE
+
+--# APUx_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_PM_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE 
+
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_PM_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# TRUE 
+
+--# APUx_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --# FALSE!
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_PM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU1_PM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+
+LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); --# FALSE!
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_PM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  --# TRUE 
+--LTLSPEC G(CCFs = 0 & failures = 1) -> G(APU2_PM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); --# FALSE
+
+
+--# MCS of length 2 - both failures in the minimal cut set should cause a problem
+
+--#APU1_DIM_FU
+--#APU2_DIM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_DIM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_DIM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_DIM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_DIM_FU
+--#APU2_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_SR_FD
+--#APU2_DIM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_DIM_FU
+--#APU2_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_PM_FU   & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_PM_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_PM_FU
+--#APU2_DIM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_PM_FU   & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_PM_FU  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_DIM_FU
+--#APU2_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_PM_FD   & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_PM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+--#APU1_PM_FD
+--#APU2_DIM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_PM_FD   & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FU & APU1_PM_FD  & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_SR_FD
+--#APU2_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_SR_FD & APU1_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_SR_FD & APU1_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_SR_FD & APU1_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_DIM_FD
+--#APU2_DIM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_DIM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_DIM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_DIM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_DIM_FU
+--#APU2_DIM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_DIM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_DIM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FU & APU2_DIM_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_SR_FD
+--#APU2_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FU  & APU1_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FU & APU1_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FU & APU1_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_PM_FU
+--#APU2_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FU  & APU2_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FU & APU2_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FU & APU2_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+
+--#APU1_PM_FD
+--#APU2_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD  & APU2_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD & APU2_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD & APU2_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_SR_FD
+--#APU2_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FD  & APU1_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FD & APU1_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FD & APU1_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_PM_FU
+--#APU2_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FU  & APU2_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FU & APU2_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FU & APU2_PM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_DIM_FD
+--#APU2_SR_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_SR_FD
+--#APU2_DIM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_SR_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_SR_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_SR_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_PM_FD
+--#APU2_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD  & APU2_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD & APU2_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD & APU2_PM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_PM_FU
+--#APU2_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FD  & APU1_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FD & APU1_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_PM_FD & APU1_PM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_DIM_FD
+--#APU2_PM_FU
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD  & APU2_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_PM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_PM_FU
+--#APU2_DIM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD  & APU1_PM_FU  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_PM_FU  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_PM_FU & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_PM_FD
+--#APU2_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD  & APU2_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD & APU2_PM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_PM_FD & APU2_PM_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FFT
+
+--#APU1_DIM_FD
+--#APU2_PM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD  & APU2_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_PM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_PM_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_PM_FD
+--#APU2_DIM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD  & APU1_PM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_PM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU2_DIM_FD & APU1_PM_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+--#APU1_DIM_FD
+--#APU2_DIM_FD
+LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_DIM_FD  & processmodule.Water_level < 20  -> VALVE_CLOSE); 
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_DIM_FD  & processmodule.Water_level  > 100  -> F ( VALVE_OPEN));  
+--LTLSPEC G(CCFs = 0 & failures = 2) -> G(APU1_DIM_FD & APU2_DIM_FD & processmodule.Water_level  > 20  &  processmodule.Water_level < 100 ->  ! LINK_HIGHVU_VALVE.output1 & ! LINK_LOWVU_VALVE.output1); 
+--# FTF
+
+
+ASSIGN
+
+next(failures):= failures; --# the nro of failures can not change 
+next(CCFs):= CCFs; --# the nro of CCFs can not change in time
+
+MODULE TON(in1, in1_FAULT, time, cycles)	 -- 2	functionblocks.smv
+VAR	 -- 3	functionblocks.smv
+	counter : 0..100;	 -- 4	functionblocks.smv
+DEFINE	 -- 5	functionblocks.smv
+	delay := cycles * time;	 -- 6	functionblocks.smv
+	OUT := (counter = delay) & in1;	 -- 7	functionblocks.smv
+
+	OUT_FAULT := in1_FAULT ;	 -- 9	functionblocks.smv
+
+ASSIGN	 -- 11	functionblocks.smv
+	init(counter) := 0;	 -- 12	functionblocks.smv
+	next(counter):=case	 -- 13	functionblocks.smv
+				in1 & ! in1_FAULT & counter < delay : counter+1;	 -- 14	functionblocks.smv
+				in1 & ! in1_FAULT & counter = delay : delay;	 -- 15	functionblocks.smv
+				in1_FAULT : counter;	 -- 16	functionblocks.smv
+				TRUE : 0;	 -- 17	functionblocks.smv
+				esac;	 -- 18	functionblocks.smv
+
+
+MODULE COMPLOWER(in1, in1_FAULT, limit)	 -- 21	functionblocks.smv
+VAR	 -- 22	functionblocks.smv
+DEFINE	 -- 23	functionblocks.smv
+	OUT := in1 < limit ;	 -- 24	functionblocks.smv
+	OUT_FAULT := in1_FAULT;	 -- 25	functionblocks.smv
+ASSIGN	 -- 26	functionblocks.smv
+
+
+MODULE COMPHIGHER(in1, in1_FAULT, limit)	 -- 29	functionblocks.smv
+VAR	 -- 30	functionblocks.smv
+DEFINE	 -- 31	functionblocks.smv
+	OUT := in1 > limit ;	 -- 32	functionblocks.smv
+	OUT_FAULT := in1_FAULT;	 -- 33	functionblocks.smv
+ASSIGN	 -- 34	functionblocks.smv
+
+MODULE _1oo2V(in1, in1_FAULT, in2, in2_FAULT)	 -- 36	functionblocks.smv
+VAR	 -- 37	functionblocks.smv
+DEFINE	 -- 38	functionblocks.smv
+	OUT := (in1 & ! in1_FAULT) | (in2 & ! in2_FAULT);	 -- 39	functionblocks.smv
+	OUT_FAULT := FALSE;	 -- 40	functionblocks.smv
+ASSIGN	 -- 41	functionblocks.smv
+
+MODULE _2oo2V(in1, in1_FAULT, in2, in2_FAULT)	 -- 43	functionblocks.smv
+VAR	 -- 44	functionblocks.smv
+DEFINE	 -- 45	functionblocks.smv
+	OUT := (in1 & ! in1_FAULT) & (in2 & ! in2_FAULT);	 -- 46	functionblocks.smv
+	OUT_FAULT := FALSE;	 -- 47	functionblocks.smv
+ASSIGN	 -- 48	functionblocks.smv
+
+MODULE DFLT(in1, in1_FAULT, value)	 -- 50	functionblocks.smv
+VAR	 -- 51	functionblocks.smv
+DEFINE	 -- 52	functionblocks.smv
+	OUT := case	 -- 53	functionblocks.smv
+			in1_FAULT : value;	 -- 54	functionblocks.smv
+			TRUE : in1;	 -- 55	functionblocks.smv
+			esac;	 -- 56	functionblocks.smv
+	OUT_FAULT := FALSE;	 -- 57	functionblocks.smv
+ASSIGN	 -- 58	functionblocks.smv
+
+
+
+
+
+
+MODULE LOW_WL_APU(meas1, meas1_FAULT, lowapu2, lowapu2_FAULT)	 -- 1	LOW_WL_APU.smv
+VAR	 -- 2	LOW_WL_APU.smv
+DFLT1 : DFLT(meas1, meas1_FAULT,  FALSE);	 -- 3	LOW_WL_APU.smv
+VOTE1 : _1oo2V(meas1, meas1_FAULT, DFLT1.OUT, DFLT1.OUT_FAULT);	 -- 4	LOW_WL_APU.smv
+
+DEFINE	 -- 6	LOW_WL_APU.smv
+
+CLOSE := VOTE1.OUT;	 -- 8	LOW_WL_APU.smv
+CLOSE_FAULT := VOTE1.OUT_FAULT;	 -- 9	LOW_WL_APU.smv
+
+VOTE_OUT := meas1;	 -- 11	LOW_WL_APU.smv
+VOTE_OUT_FAULT := meas1_FAULT;	 -- 12	LOW_WL_APU.smv
+ASSIGN	 -- 13	LOW_WL_APU.smv
+
+MODULE VULOW(apu1, apu1_FAULT, apu2, apu2_FAULT)	 -- 1	VU.smv
+VAR	 -- 2	VU.smv
+VOTE1 : _1oo2V(apu1, apu1_FAULT, apu2, apu2_FAULT);	 -- 3	VU.smv
+DFLT1 : DFLT(VOTE1.OUT, VOTE1.OUT_FAULT, FALSE);	 -- 4	VU.smv
+DEFINE	 -- 5	VU.smv
+	COMMAND := DFLT1.OUT;	 -- 6	VU.smv
+	COMMAND_FAULT := DFLT1.OUT_FAULT;	 -- 7	VU.smv
+ASSIGN	 -- 8	VU.smv
+
+MODULE VUHIGH(apu1, apu1_FAULT, apu2, apu2_FAULT)	 -- 10	VU.smv
+VAR	 -- 11	VU.smv
+VOTE1 : _1oo2V(apu1, apu1_FAULT, apu2, apu2_FAULT);	 -- 12	VU.smv
+DFLT1 : DFLT(VOTE1.OUT, VOTE1.OUT_FAULT, TRUE);	 -- 13	VU.smv
+DEFINE	 -- 14	VU.smv
+	COMMAND := DFLT1.OUT;	 -- 15	VU.smv
+	COMMAND_FAULT := DFLT1.OUT_FAULT;	 -- 16	VU.smv
+ASSIGN	 -- 17	VU.smv
+
+MODULE HIGH_WL_APU(meas1, meas1_FAULT, apu2, apu2_FAULT, cycles)	 -- 1	HIGH_WL_APU.smv
+VAR	 -- 2	HIGH_WL_APU.smv
+TON1 : TON(meas1, meas1_FAULT,  10, cycles);	 -- 3	HIGH_WL_APU.smv
+DFLT1 : DFLT(apu2, apu2_FAULT, TRUE); --# This is the erroneous TRUE parameter	 -- 4	HIGH_WL_APU.smv
+VOTE1 : _1oo2V(TON1.OUT, TON1.OUT_FAULT, DFLT1.OUT, DFLT1.OUT_FAULT);	 -- 5	HIGH_WL_APU.smv
+
+DEFINE	 -- 7	HIGH_WL_APU.smv
+
+OPEN := VOTE1.OUT;	 -- 9	HIGH_WL_APU.smv
+OPEN_FAULT := VOTE1.OUT_FAULT;	 -- 10	HIGH_WL_APU.smv
+
+VOTE_OUT := TON1.OUT;	 -- 12	HIGH_WL_APU.smv
+VOTE_OUT_FAULT := TON1.OUT_FAULT;	 -- 13	HIGH_WL_APU.smv
+
+ASSIGN	 -- 15	HIGH_WL_APU.smv
+
+--##################	 -- 1	failuremodule_MKJall.smv
+--### FAILURE MODULE ###	 -- 2	failuremodule_MKJall.smv
+--##################	 -- 3	failuremodule_MKJall.smv
+
+MODULE failure_module( nro_of_allowed_failures, nro_of_allowed_CCFs)	 -- 5	failuremodule_MKJall.smv
+VAR	 -- 6	failuremodule_MKJall.smv
+--# CCFs not actually used in the model	 -- 7	failuremodule_MKJall.smv
+CCF_module : CCF_failuremodule(nro_of_allowed_CCFs);	 -- 8	failuremodule_MKJall.smv
+
+--# APUs and VUs	 -- 10	failuremodule_MKJall.smv
+APU1 : APU_failuremodule(1, CCF_module);	 -- 11	failuremodule_MKJall.smv
+APU2 : APU_failuremodule(2, CCF_module);	 -- 12	failuremodule_MKJall.smv
+VU : VU_failuremodule(5, CCF_module);	 -- 13	failuremodule_MKJall.smv
+
+--# Equipment	 -- 15	failuremodule_MKJall.smv
+Valve1 : valve_failuremodule(1, CCF_module);	 -- 16	failuremodule_MKJall.smv
+
+--# Measurements:	 -- 18	failuremodule_MKJall.smv
+WLM_LOW : measurement_failuremodule(23, CCF_module);	 -- 19	failuremodule_MKJall.smv
+WLM_HIGH : measurement_failuremodule(24, CCF_module);	 -- 20	failuremodule_MKJall.smv
+
+
+DEFINE	 -- 23	failuremodule_MKJall.smv
+measurement_faults :=  toint(WLM_LOW.single_failure)	 -- 24	failuremodule_MKJall.smv
++ toint(WLM_HIGH.single_failure) ;	 -- 25	failuremodule_MKJall.smv
+
+APU_faults := APU1.nro_faults +APU2.nro_faults +VU.nro_faults ;	 -- 27	failuremodule_MKJall.smv
+
+equipment_faults := toint(Valve1.status != OK);	 -- 29	failuremodule_MKJall.smv
+
+nro_of_faults := measurement_faults + APU_faults + equipment_faults;	 -- 31	failuremodule_MKJall.smv
+
+INVAR nro_of_faults <= nro_of_allowed_failures;	 -- 33	failuremodule_MKJall.smv
+ASSIGN	 -- 34	failuremodule_MKJall.smv
+
+
+MODULE CCF_failuremodule(nro_of_allowed_CCFs)	 -- 37	failuremodule_MKJall.smv
+VAR	 -- 38	failuremodule_MKJall.smv
+MEAS_CCF : CCF({23,24}, detected);	 -- 39	failuremodule_MKJall.smv
+
+DEFINE	 -- 41	failuremodule_MKJall.smv
+nro_of_CCFs := toint(MEAS_CCF.realizes) ;	 -- 42	failuremodule_MKJall.smv
+
+INVAR nro_of_CCFs <= nro_of_allowed_CCFs;	 -- 44	failuremodule_MKJall.smv
+ASSIGN	 -- 45	failuremodule_MKJall.smv
+
+
+MODULE CCF(ids, failuremode)	 -- 48	failuremodule_MKJall.smv
+VAR	 -- 49	failuremodule_MKJall.smv
+realizes : boolean;	 -- 50	failuremodule_MKJall.smv
+DEFINE	 -- 51	failuremodule_MKJall.smv
+affected_ids := ids;	 -- 52	failuremodule_MKJall.smv
+failure_mode := failuremode;	 -- 53	failuremodule_MKJall.smv
+ASSIGN	 -- 54	failuremodule_MKJall.smv
+
+
+MODULE APU_failuremodule(id, CCFmodule)	 -- 57	failuremodule_MKJall.smv
+VAR	 -- 58	failuremodule_MKJall.smv
+FROZENVAR processor_status : {OK, detected, undetected};	 -- 59	failuremodule_MKJall.smv
+FROZENVAR digital_input_status : {OK, detected, undetected};	 -- 60	failuremodule_MKJall.smv
+FROZENVAR backplane_or_powersupply_status : {OK, detected};	 -- 61	failuremodule_MKJall.smv
+DEFINE	 -- 62	failuremodule_MKJall.smv
+
+nro_faults :=  toint(processor_status != OK)	 -- 64	failuremodule_MKJall.smv
++ toint(digital_input_status != OK)	 -- 65	failuremodule_MKJall.smv
++ toint(single_failure_in_backplane) ;  --# single failures in addition to the CCFs	 -- 66	failuremodule_MKJall.smv
+
+single_failure_in_backplane := (backplane_or_powersupply_status != OK);	 -- 68	failuremodule_MKJall.smv
+
+
+ASSIGN	 -- 71	failuremodule_MKJall.smv
+
+MODULE VU_failuremodule(id, CCFmodule)	 -- 73	failuremodule_MKJall.smv
+VAR	 -- 74	failuremodule_MKJall.smv
+FROZENVAR processor_status : {OK, detected, undetected};	 -- 75	failuremodule_MKJall.smv
+FROZENVAR digital_output_status : {OK, detected, undetected};	 -- 76	failuremodule_MKJall.smv
+FROZENVAR backplane_or_powersupply_status : {OK, detected};	 -- 77	failuremodule_MKJall.smv
+DEFINE	 -- 78	failuremodule_MKJall.smv
+
+nro_faults :=  toint(processor_status != OK)	 -- 80	failuremodule_MKJall.smv
++ toint(digital_output_status != OK)	 -- 81	failuremodule_MKJall.smv
++ toint(single_failure_in_backplane) ;  --# single failures in addition to the CCFs	 -- 82	failuremodule_MKJall.smv
+
+single_failure_in_backplane := (backplane_or_powersupply_status != OK);	 -- 84	failuremodule_MKJall.smv
+
+
+ASSIGN	 -- 87	failuremodule_MKJall.smv
+
+MODULE measurement_failuremodule(id, CCFmodule)	 -- 89	failuremodule_MKJall.smv
+VAR	 -- 90	failuremodule_MKJall.smv
+FROZENVAR status : {OK,  detected, undetected};	 -- 91	failuremodule_MKJall.smv
+DEFINE	 -- 92	failuremodule_MKJall.smv
+single_failure := (status != OK) & ! CCFmodule.MEAS_CCF.realizes;	 -- 93	failuremodule_MKJall.smv
+ASSIGN	 -- 94	failuremodule_MKJall.smv
+init(status) := case	 -- 95	failuremodule_MKJall.smv
+			CCFmodule.MEAS_CCF.realizes & (id in CCFmodule.MEAS_CCF.affected_ids) : CCFmodule.MEAS_CCF.failure_mode ;	 -- 96	failuremodule_MKJall.smv
+			TRUE : {OK, detected, undetected};	 -- 97	failuremodule_MKJall.smv
+			esac;	 -- 98	failuremodule_MKJall.smv
+
+
+MODULE valve_failuremodule(id, CCFmodule)	 -- 101	failuremodule_MKJall.smv
+VAR	 -- 102	failuremodule_MKJall.smv
+FROZENVAR status : {OK, fails_open};	 -- 103	failuremodule_MKJall.smv
+DEFINE	 -- 104	failuremodule_MKJall.smv
+ASSIGN	 -- 105	failuremodule_MKJall.smv
+
+
+
+
+MODULE process_module(valveopen)	 -- 2	processmodule.smv
+VAR	 -- 3	processmodule.smv
+Water_level : 0..120; --# the actual physical water level independent of measurements	 -- 4	processmodule.smv
+flow : {inflow, noflow, outflow};	 -- 5	processmodule.smv
+
+DEFINE	 -- 7	processmodule.smv
+Water_level_high := Water_level > 100;	 -- 8	processmodule.smv
+Water_level_low := Water_level < 20;	 -- 9	processmodule.smv
+ASSIGN	 -- 10	processmodule.smv
+
+--# if there is inflow, increase water level by 5	 -- 12	processmodule.smv
+--# if there is outlow, decrease by 5	 -- 13	processmodule.smv
+next(Water_level):=case	 -- 14	processmodule.smv
+				flow = inflow & Water_level > 115 : 120;	 -- 15	processmodule.smv
+				flow = inflow & Water_level <116 : Water_level +5;	 -- 16	processmodule.smv
+				flow = noflow : Water_level;	 -- 17	processmodule.smv
+				flow = outflow & Water_level < 5 : 0;	 -- 18	processmodule.smv
+				flow = outflow & Water_level > 4 : Water_level - 5;	 -- 19	processmodule.smv
+				esac;	 -- 20	processmodule.smv
+init(flow):= noflow;	 -- 21	processmodule.smv
+
+--# if the valve is closed, water flows in	 -- 23	processmodule.smv
+--# otherwise it flows out	 -- 24	processmodule.smv
+next(flow):=case	 -- 25	processmodule.smv
+			! valveopen : inflow;	 -- 26	processmodule.smv
+			valveopen : outflow;	 -- 27	processmodule.smv
+			TRUE : noflow;	 -- 28	processmodule.smv
+			esac;	 -- 29	processmodule.smv
+
+
+MODULE LINK_MEAS_APU(in1, measurement, apu, DFLT)	 -- 2	LINK_MEAS_APU_MKJall.smv
+VAR	 -- 3	LINK_MEAS_APU_MKJall.smv
+
+random : boolean;	 -- 5	LINK_MEAS_APU_MKJall.smv
+DEFINE	 -- 6	LINK_MEAS_APU_MKJall.smv
+output1 := case	 -- 7	LINK_MEAS_APU_MKJall.smv
+			apu.backplane_or_powersupply_status != OK : FALSE;	 -- 8	LINK_MEAS_APU_MKJall.smv
+			apu.digital_input_status != OK : FALSE;	 -- 9	LINK_MEAS_APU_MKJall.smv
+			measurement.status != OK : random;	 -- 10	LINK_MEAS_APU_MKJall.smv
+			TRUE : in1;	 -- 11	LINK_MEAS_APU_MKJall.smv
+		esac;	 -- 12	LINK_MEAS_APU_MKJall.smv
+output1_FAULT := case	 -- 13	LINK_MEAS_APU_MKJall.smv
+			apu.backplane_or_powersupply_status != OK : TRUE;	 -- 14	LINK_MEAS_APU_MKJall.smv
+			apu.digital_input_status = detected : TRUE;	 -- 15	LINK_MEAS_APU_MKJall.smv
+			measurement.status = detected : TRUE;	 -- 16	LINK_MEAS_APU_MKJall.smv
+			TRUE : FALSE;	 -- 17	LINK_MEAS_APU_MKJall.smv
+			esac;	 -- 18	LINK_MEAS_APU_MKJall.smv
+ASSIGN	 -- 19	LINK_MEAS_APU_MKJall.smv
+
+
+
+
+MODULE LINK_APU_APU(in1, in1_FAULT, apu1, apu2, DFLT)	 -- 2	LINK_APU_APU_MKJall.smv
+VAR	 -- 3	LINK_APU_APU_MKJall.smv
+
+DEFINE	 -- 5	LINK_APU_APU_MKJall.smv
+output1 := case	 -- 6	LINK_APU_APU_MKJall.smv
+			apu2.backplane_or_powersupply_status != OK : FALSE;	 -- 7	LINK_APU_APU_MKJall.smv
+			apu2.digital_input_status != OK : FALSE;	 -- 8	LINK_APU_APU_MKJall.smv
+			apu1.backplane_or_powersupply_status != OK : FALSE;	 -- 9	LINK_APU_APU_MKJall.smv
+			apu1.processor_status != OK : FALSE;	 -- 10	LINK_APU_APU_MKJall.smv
+			TRUE : in1;	 -- 11	LINK_APU_APU_MKJall.smv
+		esac;	 -- 12	LINK_APU_APU_MKJall.smv
+output1_FAULT := case	 -- 13	LINK_APU_APU_MKJall.smv
+			apu2.backplane_or_powersupply_status != OK : TRUE;	 -- 14	LINK_APU_APU_MKJall.smv
+			apu2.digital_input_status = detected : TRUE;	 -- 15	LINK_APU_APU_MKJall.smv
+			apu1.backplane_or_powersupply_status = detected : TRUE;	 -- 16	LINK_APU_APU_MKJall.smv
+			apu1.processor_status = detected : TRUE;	 -- 17	LINK_APU_APU_MKJall.smv
+			TRUE : in1_FAULT;	 -- 18	LINK_APU_APU_MKJall.smv
+		esac;	 -- 19	LINK_APU_APU_MKJall.smv
+ASSIGN	 -- 20	LINK_APU_APU_MKJall.smv
+
+
+--# APU - VU links	 -- 1	LINK_APU_VU_MKJall.smv
+MODULE LINK_APU_VU(in1, in1_FAULT, apu, vu, DFLT)	 -- 2	LINK_APU_VU_MKJall.smv
+VAR	 -- 3	LINK_APU_VU_MKJall.smv
+
+DEFINE	 -- 5	LINK_APU_VU_MKJall.smv
+output1 := case	 -- 6	LINK_APU_VU_MKJall.smv
+			vu.backplane_or_powersupply_status != OK : FALSE;	 -- 7	LINK_APU_VU_MKJall.smv
+			apu.backplane_or_powersupply_status != OK : FALSE;	 -- 8	LINK_APU_VU_MKJall.smv
+			apu.processor_status != OK : FALSE;	 -- 9	LINK_APU_VU_MKJall.smv
+			TRUE : in1;	 -- 10	LINK_APU_VU_MKJall.smv
+		esac;	 -- 11	LINK_APU_VU_MKJall.smv
+output1_FAULT := case	 -- 12	LINK_APU_VU_MKJall.smv
+			vu.backplane_or_powersupply_status != OK : TRUE;	 -- 13	LINK_APU_VU_MKJall.smv
+			apu.backplane_or_powersupply_status = detected : TRUE;	 -- 14	LINK_APU_VU_MKJall.smv
+			apu.processor_status = detected : TRUE;	 -- 15	LINK_APU_VU_MKJall.smv
+			TRUE : in1_FAULT;	 -- 16	LINK_APU_VU_MKJall.smv
+		esac;	 -- 17	LINK_APU_VU_MKJall.smv
+ASSIGN	 -- 18	LINK_APU_VU_MKJall.smv
+
+
+--# PRIORITY MODULE to ACTUATOR output link	 -- 1	LINK_VU_VALVE_MKJall.smv
+MODULE LINK_VU_VALVE(in1, in1_FAULT, vu, valve)	 -- 2	LINK_VU_VALVE_MKJall.smv
+VAR	 -- 3	LINK_VU_VALVE_MKJall.smv
+
+DEFINE	 -- 5	LINK_VU_VALVE_MKJall.smv
+output1 := case	 -- 6	LINK_VU_VALVE_MKJall.smv
+			valve.status = fails_open : TRUE;	 -- 7	LINK_VU_VALVE_MKJall.smv
+			vu.backplane_or_powersupply_status != OK : FALSE;	 -- 8	LINK_VU_VALVE_MKJall.smv
+			vu.digital_output_status != OK :  FALSE;	 -- 9	LINK_VU_VALVE_MKJall.smv
+			vu.processor_status != OK : FALSE;	 -- 10	LINK_VU_VALVE_MKJall.smv
+			TRUE : in1;	 -- 11	LINK_VU_VALVE_MKJall.smv
+		esac;	 -- 12	LINK_VU_VALVE_MKJall.smv
+
+ASSIGN	 -- 14	LINK_VU_VALVE_MKJall.smv
+
+
+MODULE VALVE(open, close)	 -- 1	VALVE.smv
+VAR	 -- 2	VALVE.smv
+prev : boolean;	 -- 3	VALVE.smv
+
+DEFINE	 -- 5	VALVE.smv
+OPEN := case	 -- 6	VALVE.smv
+			open : TRUE;	--# prioritisation of valve is to OPEN if both commands are received	 -- 7	VALVE.smv
+			close : FALSE;	 -- 8	VALVE.smv
+			TRUE : prev;	 -- 9	VALVE.smv
+	esac;	 -- 10	VALVE.smv
+ASSIGN	 -- 11	VALVE.smv
+next(prev) := OPEN;	 -- 12	VALVE.smv
+
